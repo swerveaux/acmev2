@@ -10,7 +10,9 @@ import (
 	"errors"
 	"fmt"
 	"io/ioutil"
+	"log"
 	"net/http"
+	"time"
 
 	jose "gopkg.in/square/go-jose.v2"
 )
@@ -109,6 +111,54 @@ func (c *Client) FetchOrRenewCert(domain string) error {
 	if domain == "" {
 		return errors.New("no domain passed in")
 	}
+	certApply, err := c.CertApply([]string{domain})
+	if err != nil {
+		return err
+	}
+
+	challengeResponse, err := c.FetchChallenges(certApply.Authorizations[0])
+	fmt.Println(challengeResponse)
+	var challenge Challenge
+	for _, c := range challengeResponse.Challenges {
+		if c.Type == "dns-01" {
+			challenge = c
+			break
+		}
+	}
+	authHash, err := c.AcmeAuthHash(challenge.Token)
+	if err != nil {
+		log.Fatal(err)
+		return err
+	}
+	fmt.Println(authHash)
+
+	err = c.DNS.AddTextRecord(domain, authHash)
+	if err != nil {
+		log.Fatal(err)
+		return err
+	}
+
+	defer func() {
+		err = c.DNS.RemoveTextRecord(domain, authHash)
+		if err != nil {
+			log.Fatal(err)
+		}
+	}()
+
+	<-time.After(1 * time.Minute)
+
+	err = c.ChallengeReady(challenge.URL)
+	if err != nil {
+		log.Printf("Failed posting challenge: %v\n", err)
+		return err
+	}
+
+	err = c.PollForStatus(domain)
+	if err != nil {
+		log.Printf("Bad response when polling: %v\n", err)
+		return err
+	}
+
 	return nil
 }
 

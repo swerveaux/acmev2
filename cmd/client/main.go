@@ -11,7 +11,6 @@ import (
 	"net/http"
 	"os"
 	"strings"
-	"time"
 
 	"github.com/spf13/pflag"
 	"github.com/swerveaux/acmev2"
@@ -61,7 +60,7 @@ func main() {
 		http.DefaultTransport.(*http.Transport).TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
 	}
 
-	certstore, err := acmev2.NewASMCertStore("us-east-1")
+	certStore, err := acmev2.NewASMCertStore("us-east-1")
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -71,60 +70,14 @@ func main() {
 		log.Fatal(err)
 	}
 
-	client, err := acmev2.NewClient(acmeURL, certstore, dnsModifier, acmeClientOpts)
+	client, err := acmev2.NewClient(acmeURL, certStore, dnsModifier, acmeClientOpts)
 	if err != nil {
 		log.Fatal(err)
 	}
 
 	for _, domain := range domains {
 		if err := client.FetchOrRenewCert(domain); err != nil {
-			fmt.Fprintf(os.Stderr, "failed to fetch or renew cert for %s\n", domain)
+			_, _ = fmt.Fprintf(os.Stderr, "failed to fetch or renew cert for %s\n", domain)
 		}
 	}
-
-	certApply, err := client.CertApply(domains)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	challengeResponse, err := client.FetchChallenges(certApply.Authorizations[0])
-	fmt.Println(challengeResponse)
-	var challenge acmev2.Challenge
-	for _, c := range challengeResponse.Challenges {
-		if c.Type == "dns-01" {
-			challenge = c
-			break
-		}
-	}
-	authHash, err := client.AcmeAuthHash(challenge.Token)
-	if err != nil {
-		log.Fatal(err)
-	}
-	fmt.Println(string(authHash))
-
-	err = client.DNS.AddTextRecord(domains[0], authHash)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	defer func() {
-		err = client.DNS.RemoveTextRecord(domains[0], authHash)
-		if err != nil {
-			log.Fatal(err)
-		}
-	}()
-
-	<-time.After(1 * time.Minute)
-
-	err = client.ChallengeReady(challenge.URL)
-	if err != nil {
-		log.Printf("Failed posting challenge: %v\n", err)
-		return
-	}
-
-	err = client.PollForStatus(domains[0])
-	if err != nil {
-		log.Printf("Bad response when polling: %v\n", err)
-	}
-
 }
