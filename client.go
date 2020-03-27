@@ -14,10 +14,20 @@ import (
 	jose "gopkg.in/square/go-jose.v2"
 )
 
+// ClientOpts are options for the ACME v2 client.
 type ClientOpts struct {
-	HttpClient *http.Client
+	// HTTPClient lets you set an optional *http.Client if you, for instance, want to set your own timeouts or other options.
+	HTTPClient *http.Client
+	// AccountKey is the ECDSA key associated with your Let's Encrypt account. You must supply either this
+	// to identify yourself for a previously created account or pass in ContactEmails to create a new
+	// account.
 	AccountKey *ecdsa.PrivateKey
-	CertKey    *rsa.PrivateKey // TODO: Remove this eventually
+	// CertKey will be deprecated. It's a key for an existing cert to be used for renewal. It will be
+	// the CertRetriever's job to provide that.
+	CertKey *rsa.PrivateKey // TODO: Remove this eventually
+	// ContactEmails is a slice of email addresses used to identify points of contact for a Let's Encrypt
+	// account.
+	ContactEmails []string
 }
 
 type DNSModifier interface {
@@ -58,8 +68,8 @@ type Client struct {
 // a slice of contact emails for the cert being requested (Let's Encrypt will generally send you an
 // email when a cert is approaching expiration, though I've found that to be flaky).   There's
 // the Directory from that URL and get a Nonce for the next request.
-func NewClient(dirURL string, contactEmails []string, csr CertStoreRetriever, dm DNSModifier, opts ClientOpts) (Client, error) {
-	c := Client{Key: opts.AccountKey, CertKey: opts.CertKey, ContactEmails: contactEmails}
+func NewClient(dirURL string, csr CertStoreRetriever, dm DNSModifier, opts ClientOpts) (Client, error) {
+	c := Client{Key: opts.AccountKey, CertKey: opts.CertKey, ContactEmails: opts.ContactEmails}
 
 	directory, err := queryDirectory(dirURL)
 	if err != nil {

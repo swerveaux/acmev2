@@ -49,7 +49,11 @@ func main() {
 		log.Fatal(err)
 	}
 
-	acmeClientOpts := acmev2.ClientOpts{AccountKey: key, CertKey: certKey}
+	acmeClientOpts := acmev2.ClientOpts{
+		AccountKey:    key,
+		CertKey:       certKey,
+		ContactEmails: contacts,
+	}
 
 	acmeURL := acmeStagingURL
 	if acmeURL == acmeLocalURL {
@@ -66,7 +70,7 @@ func main() {
 		log.Fatal(err)
 	}
 
-	client, err := acmev2.NewClient(acmeURL, contacts, certstore, dnsModifier, acmeClientOpts)
+	client, err := acmev2.NewClient(acmeURL, certstore, dnsModifier, acmeClientOpts)
 	if err != nil {
 		log.Fatal(err)
 	}
