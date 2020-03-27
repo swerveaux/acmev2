@@ -11,11 +11,6 @@ import (
 	"io/ioutil"
 	"net/http"
 
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/session"
-	"github.com/aws/aws-sdk-go/service/route53"
-	"github.com/aws/aws-sdk-go/service/secretsmanager"
-
 	jose "gopkg.in/square/go-jose.v2"
 )
 
@@ -25,26 +20,45 @@ type ClientOpts struct {
 	CertKey    *rsa.PrivateKey // TODO: Remove this eventually
 }
 
+type DNSModifier interface {
+	AddTextRecord(domain, token string) error
+	RemoveTextRecord(domain, token string) error
+}
+
+type CertStorer interface {
+	Store(keyPEM, certPEM, domain string) error
+}
+
+type CertRetriever interface {
+	Retrieve(domain string) (string, string, error)
+}
+
+type CertStoreRetriever interface {
+	CertStorer
+	CertRetriever
+}
+
 // Client acts as an ACME client for LetsEncrypt.   It keeps track
 // of the current Nonce, the ecdsa key for signing messages, and
 // the keyID.
 type Client struct {
-	Nonce          string
-	KID            string
-	Key            *ecdsa.PrivateKey
-	Directory      Directory
-	AWSSession     *session.Session
-	R53            *route53.Route53
-	SecretsManager *secretsmanager.SecretsManager
-	OrderURL       string
-	ContactEmails  []string
-	Finalize       string
-	CertKey        *rsa.PrivateKey
+	Nonce         string
+	KID           string
+	Key           *ecdsa.PrivateKey
+	Directory     Directory
+	DNS           DNSModifier
+	CertsManager  CertStoreRetriever
+	OrderURL      string
+	ContactEmails []string
+	Finalize      string
+	CertKey       *rsa.PrivateKey
 }
 
-// NewClient takes a directory URL and *ecdsa.PrivateKey and sets up a client.   It will populate
+// NewClient takes a directory URL (e.g, https://acme-staging-v02.api.letsencrypt.org/directory) and
+// a slice of contact emails for the cert being requested (Let's Encrypt will generally send you an
+// email when a cert is approaching expiration, though I've found that to be flaky).   There's
 // the Directory from that URL and get a Nonce for the next request.
-func NewClient(dirURL string, contactEmails []string, opts ClientOpts) (Client, error) {
+func NewClient(dirURL string, contactEmails []string, csr CertStoreRetriever, dm DNSModifier, opts ClientOpts) (Client, error) {
 	c := Client{Key: opts.AccountKey, CertKey: opts.CertKey, ContactEmails: contactEmails}
 
 	directory, err := queryDirectory(dirURL)
@@ -62,15 +76,9 @@ func NewClient(dirURL string, contactEmails []string, opts ClientOpts) (Client, 
 
 	c.newAccount(contactEmails)
 
-	c.AWSSession, err = session.NewSession(&aws.Config{
-		Region: aws.String("us-east-1"),
-	})
-	if err != nil {
-		return c, err
-	}
+	c.DNS = dm
 
-	c.R53 = route53.New(c.AWSSession)
-	c.SecretsManager = secretsmanager.New(c.AWSSession)
+	c.CertsManager = csr
 
 	return c, nil
 }

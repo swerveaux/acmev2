@@ -4,14 +4,33 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/aws/aws-sdk-go/aws/session"
+
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/route53"
 )
 
+type Route53 struct {
+	r53 *route53.Route53
+}
+
+func NewRoute53(region string) (*Route53, error) {
+	s, err := session.NewSession(&aws.Config{
+		Region: aws.String(region),
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	r53 := route53.New(s)
+
+	return &Route53{r53: r53}, nil
+}
+
 // AddTextRecord adds the ACME challenge text record to the DNS entry for a domain.
 // The text record is added to an entry for _acme-challenge.<domain>.
-func (c *Client) AddTextRecord(domain, token string) error {
-	hostedZoneID, err := findHostedZoneID(c.R53, domain)
+func (c *Route53) AddTextRecord(domain, token string) error {
+	hostedZoneID, err := findHostedZoneID(c.r53, domain)
 	if err != nil {
 		return err
 	}
@@ -22,7 +41,7 @@ func (c *Client) AddTextRecord(domain, token string) error {
 	}
 	fmt.Println(input.String())
 
-	_, err = c.R53.ChangeResourceRecordSets(input)
+	_, err = c.r53.ChangeResourceRecordSets(input)
 	if err != nil {
 		return err
 	}
@@ -31,8 +50,8 @@ func (c *Client) AddTextRecord(domain, token string) error {
 }
 
 // RemoveTextRecord removes the ACME challenge text record for cleanup.
-func (c *Client) RemoveTextRecord(domain, token string) error {
-	hostedZoneID, err := findHostedZoneID(c.R53, domain)
+func (c *Route53) RemoveTextRecord(domain, token string) error {
+	hostedZoneID, err := findHostedZoneID(c.r53, domain)
 	if err != nil {
 		return err
 	}
@@ -42,17 +61,12 @@ func (c *Client) RemoveTextRecord(domain, token string) error {
 		return err
 	}
 	fmt.Println(input.String())
-	_, err = c.R53.ChangeResourceRecordSets(input)
+	_, err = c.r53.ChangeResourceRecordSets(input)
 	if err != nil {
 		return err
 	}
 
 	return nil
-}
-
-// FindHostedZoneID is a probably temporary exported function to find the HostedZoneID for a domain
-func (c *Client) FindHostedZoneID(domain string) (string, error) {
-	return findHostedZoneID(c.R53, domain)
 }
 
 func createChangeRecordSetInput(hostedZoneID, domain, token, action string) (*route53.ChangeResourceRecordSetsInput, error) {
@@ -115,15 +129,6 @@ func findHostedZoneID(r53 *route53.Route53, hostname string) (string, error) {
 	hostedZoneID = *lhzbnOutput.HostedZones[0].Id
 
 	return hostedZoneID, nil
-}
-
-// FindHostedZones returns all the hosted zones for the current AWS session
-func (c *Client) FindHostedZones() (*route53.ListHostedZonesOutput, error) {
-	return findHostedZones(c.R53)
-}
-
-func findHostedZones(r53 *route53.Route53) (*route53.ListHostedZonesOutput, error) {
-	return r53.ListHostedZones(&route53.ListHostedZonesInput{})
 }
 
 func splitHostname(hostname string) (string, string, error) {

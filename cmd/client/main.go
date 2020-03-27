@@ -49,12 +49,24 @@ func main() {
 		log.Fatal(err)
 	}
 
+	acmeClientOpts := acmev2.ClientOpts{AccountKey: key, CertKey: certKey}
+
 	acmeURL := acmeStagingURL
 	if acmeURL == acmeLocalURL {
 		http.DefaultTransport.(*http.Transport).TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
 	}
 
-	client, err := acmev2.NewClient(acmeURL, contacts, acmev2.ClientOpts{AccountKey: key, CertKey: certKey})
+	certstore, err := acmev2.NewASMCertStore("us-east-1")
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	dnsModifier, err := acmev2.NewRoute53("us-east-1")
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	client, err := acmev2.NewClient(acmeURL, contacts, certstore, dnsModifier, acmeClientOpts)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -79,13 +91,13 @@ func main() {
 	}
 	fmt.Println(string(authHash))
 
-	err = client.AddTextRecord(domains[0], authHash)
+	err = client.DNS.AddTextRecord(domains[0], authHash)
 	if err != nil {
 		log.Fatal(err)
 	}
 
 	defer func() {
-		err = client.RemoveTextRecord(domains[0], authHash)
+		err = client.DNS.RemoveTextRecord(domains[0], authHash)
 		if err != nil {
 			log.Fatal(err)
 		}
