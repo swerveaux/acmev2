@@ -38,16 +38,25 @@ type CertResponse struct {
 	Certificate    string           `json:"certificate"`
 }
 
+// Challenge is back because I haven't removed it from the client yet.
+type Challenge struct {
+	Type  string `json:"type"`
+	URL   string `json:"url"`
+	Token string `json:"token"`
+}
+
 // ChallengeResponse lets us unmarshal the response for the challenges for a domain
 type ChallengeResponse struct {
 	Status     string         `json:"status"`
 	Expires    time.Time      `json:"expires"`
 	Identifier CertIdentifier `json:"identifier"`
-	Challenges struct {
-		Type  string `json:"type"`
-		URL   string `json:"url"`
-		Token string `json:"token"`
-	} `json:"challenges"`
+
+	Challenges []Challenge `json:"challenges"`
+	//Challenges []struct {
+	//	Type  string `json:"type"`
+	//	URL   string `json:"url"`
+	//	Token string `json:"token"`
+	//} `json:"challenges"`
 }
 
 // CSRRequest is the payload we send to a finalize

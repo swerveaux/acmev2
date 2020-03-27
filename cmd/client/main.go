@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -73,6 +74,12 @@ func main() {
 	client, err := acmev2.NewClient(acmeURL, certstore, dnsModifier, acmeClientOpts)
 	if err != nil {
 		log.Fatal(err)
+	}
+
+	for _, domain := range domains {
+		if err := client.FetchOrRenewCert(domain); err != nil {
+			fmt.Fprintf(os.Stderr, "failed to fetch or renew cert for %s\n", domain)
+		}
 	}
 
 	certApply, err := client.CertApply(domains)
