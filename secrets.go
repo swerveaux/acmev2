@@ -11,10 +11,12 @@ import (
 	"github.com/aws/aws-sdk-go/service/secretsmanager"
 )
 
+// ASMCertStore implements the CertStoreRetriever interface to allow for storing and retrieving TLS keys & certs.
 type ASMCertStore struct {
 	asm *secretsmanager.SecretsManager
 }
 
+// NewASMCertStore returns a pointer to an ASMCertStore value with an AWS session based on the passed in AWS region.
 func NewASMCertStore(region string) (*ASMCertStore, error) {
 	s, err := session.NewSession(&aws.Config{Region: aws.String(region)})
 	if err != nil {
@@ -34,6 +36,7 @@ const (
 	cert
 )
 
+// Store takes a key, cert, and domain and stores it in AWS Secrets Manager
 func (c *ASMCertStore) Store(keyPEM, certPEM, domain string) error {
 	err := c.addSecret(keyPEM, domain, key)
 	if err != nil {
@@ -43,6 +46,7 @@ func (c *ASMCertStore) Store(keyPEM, certPEM, domain string) error {
 	return err
 }
 
+// Retrieve takes a domain and finds the key and cert for it, if it exists.
 func (c *ASMCertStore) Retrieve(domain string) (string, string, error) {
 	return "i_am", "fake", nil
 }

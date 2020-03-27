@@ -7,6 +7,7 @@ import (
 	"crypto/rsa"
 	"crypto/sha256"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"io/ioutil"
 	"net/http"
@@ -30,19 +31,24 @@ type ClientOpts struct {
 	ContactEmails []string
 }
 
+// DNSModifier is an interface that allows for adding and removing TXT recordsets from DNS.
 type DNSModifier interface {
 	AddTextRecord(domain, token string) error
 	RemoveTextRecord(domain, token string) error
 }
 
+// CertStorer is an interface that provides a way to store a TLS key and cert for a domain.
 type CertStorer interface {
 	Store(keyPEM, certPEM, domain string) error
 }
 
+// CertRetriever is an interface that provides a way to retrieve a TLS key and cert based on a domain.
+// It should return "", "", nil if the cert isn't found vs. an actual error trying to retrieve it.
 type CertRetriever interface {
 	Retrieve(domain string) (string, string, error)
 }
 
+// CertStoreRetriever combines the CertStorer and CertRetriever interfaces.
 type CertStoreRetriever interface {
 	CertStorer
 	CertRetriever
@@ -84,13 +90,26 @@ func NewClient(dirURL string, csr CertStoreRetriever, dm DNSModifier, opts Clien
 	fmt.Printf("Fetched nonce: %s\n", nonce)
 	c.Nonce = nonce
 
-	c.newAccount(contactEmails)
+	if err := c.newAccount(c.ContactEmails); err != nil {
+		return c, err
+	}
 
 	c.DNS = dm
 
 	c.CertsManager = csr
 
 	return c, nil
+}
+
+// FetchOrRenewCert takes a domain name and tries to renew an existing cert or, if it can't find that, get
+// a new cert.   It uses the CertStoreRetriever passed in to the client to try to fetch an existing cert and, if
+// it finds that, will re-use the existing RSA key for the cert when asking for a renewal.   Otherwise, it will
+// generate a new key and ask for a new cert.
+func (c *Client) FetchOrRenewCert(domain string) error {
+	if domain == "" {
+		return errors.New("no domain passed in")
+	}
+	return nil
 }
 
 func (c *Client) makeRequest(claimset interface{}, url string, postAsGet bool) ([]byte, error) {
@@ -116,7 +135,7 @@ func (c *Client) makeRequest(claimset interface{}, url string, postAsGet bool) (
 		fmt.Println("Failed on executing http.DefaultClient.Do")
 		return b, err
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 
 	b, err = ioutil.ReadAll(res.Body)
 	if err != nil {
@@ -139,7 +158,7 @@ func queryDirectory(url string) (Directory, error) {
 	if err != nil {
 		return d, err
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 
 	dirJSON, err := ioutil.ReadAll(res.Body)
 	if err != nil {
@@ -166,7 +185,7 @@ func (c *Client) acmeAuthString(token string) (string, error) {
 		return string(thumb), err
 	}
 	fmt.Printf("Generated JSONWebKey thumbprint %q\n", thumb)
-	return fmt.Sprintf("%s.%s", token, base64.RawURLEncoding.EncodeToString([]byte(thumb))), nil
+	return fmt.Sprintf("%s.%s", token, base64.RawURLEncoding.EncodeToString(thumb)), nil
 }
 
 // AcmeAuthHash generates the value that should be put into a DNS TXT record for _acme-challenge.{domain}

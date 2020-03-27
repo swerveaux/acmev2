@@ -10,10 +10,12 @@ import (
 	"github.com/aws/aws-sdk-go/service/route53"
 )
 
+// Route53 implements DNSModifier to set and remove TXT records from AWS Hosted Zones
 type Route53 struct {
 	r53 *route53.Route53
 }
 
+// NewRoute53 returns a pointer to a Route53 value with an AWS session based on the passed in AWS region.
 func NewRoute53(region string) (*Route53, error) {
 	s, err := session.NewSession(&aws.Config{
 		Region: aws.String(region),

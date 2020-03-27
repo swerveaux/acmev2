@@ -189,7 +189,7 @@ func (c *Client) PollForStatus(domain string) error {
 	certwriter.Write(cert)
 	certwriter.Flush()
 
-	err = c.addSecrets(string(pemdata), string(cert), domain)
+	err = c.CertsManager.Store(string(pemdata), string(cert), domain)
 
 	return err
 }
