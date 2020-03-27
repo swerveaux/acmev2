@@ -31,6 +31,14 @@ type ClientOpts struct {
 	// ContactEmails is a slice of email addresses used to identify points of contact for a Let's Encrypt
 	// account.
 	ContactEmails []string
+	// Logger takes something that implements the Logger interface.   If set, it will log any output to the
+	// Logger's Log(string) function.   Otherwise, it won't output much of anything.
+	Logger Logger
+}
+
+// Logger is an interface that allows you to capture log output and do with it what you will.
+type Logger interface {
+	Log(msg interface{})
 }
 
 // DNSModifier is an interface that allows for adding and removing TXT recordsets from DNS.
@@ -70,6 +78,7 @@ type Client struct {
 	ContactEmails []string
 	Finalize      string
 	CertKey       *rsa.PrivateKey
+	Logger        Logger
 }
 
 // NewClient takes a directory URL (e.g, https://acme-staging-v02.api.letsencrypt.org/directory) and
@@ -89,8 +98,12 @@ func NewClient(dirURL string, csr CertStoreRetriever, dm DNSModifier, opts Clien
 	if err != nil {
 		return c, err
 	}
-	fmt.Printf("Fetched nonce: %s\n", nonce)
+	c.log(fmt.Sprintf("Fetched nonce: %s\n", nonce))
 	c.Nonce = nonce
+
+	if opts.Logger != nil {
+		c.Logger = opts.Logger
+	}
 
 	if err := c.newAccount(c.ContactEmails); err != nil {
 		return c, err
@@ -106,7 +119,8 @@ func NewClient(dirURL string, csr CertStoreRetriever, dm DNSModifier, opts Clien
 // FetchOrRenewCert takes a domain name and tries to renew an existing cert or, if it can't find that, get
 // a new cert.   It uses the CertStoreRetriever passed in to the client to try to fetch an existing cert and, if
 // it finds that, will re-use the existing RSA key for the cert when asking for a renewal.   Otherwise, it will
-// generate a new key and ask for a new cert.
+// generate a new key and ask for a new cert.   It is not recommended to run this in parallel with other requests
+// due to the way nonces with with the session.
 func (c *Client) FetchOrRenewCert(domain string) error {
 	if domain == "" {
 		return errors.New("no domain passed in")
@@ -117,7 +131,7 @@ func (c *Client) FetchOrRenewCert(domain string) error {
 	}
 
 	challengeResponse, err := c.FetchChallenges(certApply.Authorizations[0])
-	fmt.Println(challengeResponse)
+	c.log(challengeResponse)
 	var challenge Challenge
 	for _, c := range challengeResponse.Challenges {
 		if c.Type == "dns-01" {
@@ -130,7 +144,7 @@ func (c *Client) FetchOrRenewCert(domain string) error {
 		log.Fatal(err)
 		return err
 	}
-	fmt.Println(authHash)
+	c.log(authHash)
 
 	err = c.DNS.AddTextRecord(domain, authHash)
 	if err != nil {
@@ -149,13 +163,13 @@ func (c *Client) FetchOrRenewCert(domain string) error {
 
 	err = c.ChallengeReady(challenge.URL)
 	if err != nil {
-		log.Printf("Failed posting challenge: %v\n", err)
+		c.log(fmt.Sprintf("Failed posting challenge: %v\n", err))
 		return err
 	}
 
 	err = c.PollForStatus(domain)
 	if err != nil {
-		log.Printf("Bad response when polling: %v\n", err)
+		c.log(fmt.Sprintf("Bad response when polling: %v\n", err))
 		return err
 	}
 
@@ -169,12 +183,12 @@ func (c *Client) makeRequest(claimset interface{}, url string, postAsGet bool) (
 		return b, err
 	}
 
-	fmt.Printf("Request token sent to %s\n", url)
-	fmt.Println(string(token))
+	c.log(fmt.Sprintf("Request token sent to %s\n", url))
+	c.log(string(token))
 
 	req, err := http.NewRequest("POST", url, bytes.NewReader(token))
 	if err != nil {
-		fmt.Println("Failed on http.NewRequest")
+		c.log("Failed on http.NewRequest")
 		return b, err
 	}
 
@@ -182,14 +196,14 @@ func (c *Client) makeRequest(claimset interface{}, url string, postAsGet bool) (
 
 	res, err := http.DefaultClient.Do(req)
 	if err != nil {
-		fmt.Println("Failed on executing http.DefaultClient.Do")
+		c.log("Failed on executing http.DefaultClient.Do")
 		return b, err
 	}
 	defer func() { _ = res.Body.Close() }()
 
 	b, err = ioutil.ReadAll(res.Body)
 	if err != nil {
-		fmt.Println("Failed reading response body")
+		c.log("Failed reading response body")
 		return b, err
 	}
 
@@ -230,22 +244,28 @@ func JWKThumbprint(key *ecdsa.PrivateKey, hash crypto.Hash) ([]byte, error) {
 func (c *Client) acmeAuthString(token string) (string, error) {
 	var thumb []byte
 	thumb, err := JWKThumbprint(c.Key, crypto.SHA256)
-	fmt.Printf("JWK Thumbprint as bytes: %v\n", thumb)
+	c.log(fmt.Sprintf("JWK Thumbprint as bytes: %v\n", thumb))
 	if err != nil {
 		return string(thumb), err
 	}
-	fmt.Printf("Generated JSONWebKey thumbprint %q\n", thumb)
+	c.log(fmt.Sprintf("Generated JSONWebKey thumbprint %q\n", thumb))
 	return fmt.Sprintf("%s.%s", token, base64.RawURLEncoding.EncodeToString(thumb)), nil
 }
 
 // AcmeAuthHash generates the value that should be put into a DNS TXT record for _acme-challenge.{domain}
 func (c *Client) AcmeAuthHash(token string) (string, error) {
 	authString, err := c.acmeAuthString(token)
-	fmt.Printf("Sending token %q\n", authString)
+	c.log(fmt.Sprintf("Sending token %q\n", authString))
 	if err != nil {
 		return authString, err
 	}
 	h := sha256.New()
 	h.Write([]byte(authString))
 	return base64.RawURLEncoding.EncodeToString(h.Sum(nil)), nil
+}
+
+func (c *Client) log(msg interface{}) {
+	if c.Logger != nil {
+		c.Logger.Log(fmt.Sprintf("%s\n", msg))
+	}
 }

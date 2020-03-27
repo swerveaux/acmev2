@@ -53,6 +53,7 @@ func main() {
 		AccountKey:    key,
 		CertKey:       certKey,
 		ContactEmails: contacts,
+		Logger:        acmev2.StdoutLogger{},
 	}
 
 	acmeURL := acmeStagingURL
