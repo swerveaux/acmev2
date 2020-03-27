@@ -13,7 +13,7 @@ import (
 	"time"
 
 	"github.com/spf13/pflag"
-	"github.com/swerveaux/acmev2/internal/acmev2"
+	"github.com/swerveaux/acmev2"
 )
 
 const (
