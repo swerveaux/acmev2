@@ -1,6 +1,9 @@
 package acmev2
 
-import "fmt"
+import (
+	"context"
+	"fmt"
+)
 
 // NewAccount encapsulates what we need to create a new account
 type NewAccount struct {
@@ -12,13 +15,13 @@ type NewAccount struct {
 // If your public key matches a previous attempt, the server should
 // respond back with that account, otherwise it'll create a new one
 // for you.
-func (c *Client) newAccount(contactEmails []string) error {
+func (c *Client) newAccount(ctx context.Context, contactEmails []string) error {
 	newAcct := NewAccount{
 		Contact:              contactEmails,
 		TermsOfServiceAgreed: true,
 	}
 
-	res, err := c.makeRequest(newAcct, c.Directory.NewAccount, false)
+	res, err := c.makeRequest(ctx, newAcct, c.Directory.NewAccount, false)
 
 	fmt.Println(string(res))
 

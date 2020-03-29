@@ -2,6 +2,7 @@ package acmev2
 
 import (
 	"bufio"
+	"context"
 	"crypto/rand"
 	"crypto/x509"
 	"encoding/base64"
@@ -65,7 +66,7 @@ type CSRRequest struct {
 }
 
 // CertApply takes a slice of domain names and tries to appy for certs for them.
-func (c *Client) CertApply(domains []string) (CertResponse, error) {
+func (c *Client) CertApply(ctx context.Context, domains []string) (CertResponse, error) {
 	identifiers := make([]CertIdentifier, 0, len(domains))
 	for _, domain := range domains {
 		identifiers = append(identifiers, CertIdentifier{"dns", domain})
@@ -75,7 +76,7 @@ func (c *Client) CertApply(domains []string) (CertResponse, error) {
 		Identifiers: identifiers,
 	}
 
-	res, err := c.makeRequest(application, c.Directory.NewOrder, false)
+	res, err := c.makeRequest(ctx, application, c.Directory.NewOrder, false)
 
 	fmt.Println(string(res))
 	var certRes CertResponse
@@ -89,10 +90,10 @@ func (c *Client) CertApply(domains []string) (CertResponse, error) {
 }
 
 // FetchChallenges requests a URL from the CertApply response to find out what challenges are available to prove domain ownership.
-func (c *Client) FetchChallenges(url string) (ChallengeResponse, error) {
+func (c *Client) FetchChallenges(ctx context.Context, url string) (ChallengeResponse, error) {
 	var chRes ChallengeResponse
 	c.OrderURL = url
-	res, err := c.makeRequest(nil, url, true)
+	res, err := c.makeRequest(ctx, nil, url, true)
 	fmt.Println(string(res))
 	err = json.Unmarshal(res, &chRes)
 
@@ -101,20 +102,20 @@ func (c *Client) FetchChallenges(url string) (ChallengeResponse, error) {
 
 // ChallengeReady sends a POST to letsencrypt to let it know that
 // an authorization challenge is ready to validated.
-func (c *Client) ChallengeReady(challengeURL string) error {
-	_, err := c.makeRequest(EmptyRequest{}, challengeURL, false)
+func (c *Client) ChallengeReady(ctx context.Context, challengeURL string) error {
+	_, err := c.makeRequest(ctx, EmptyRequest{}, challengeURL, false)
 	return err
 }
 
 // PollForStatus is a PostAsGet request to the order URL waiting for a non-pending status
-func (c *Client) PollForStatus(domain string) error {
+func (c *Client) PollForStatus(ctx context.Context, domain string) error {
 	var res []byte
 	var err error
 	challengeFinished := false
 	var certRes CertResponse
 	for !challengeFinished {
 		<-time.After(5 * time.Second)
-		res, err = c.makeRequest(EmptyRequest{}, c.OrderURL, true)
+		res, err = c.makeRequest(ctx, EmptyRequest{}, c.OrderURL, true)
 		if err != nil {
 			return err
 		}
@@ -146,7 +147,7 @@ func (c *Client) PollForStatus(domain string) error {
 		return err
 	}
 
-	res, err = c.makeRequest(CSRRequest{CSR: base64.RawURLEncoding.EncodeToString(csr)}, c.Finalize, false)
+	res, err = c.makeRequest(ctx, CSRRequest{CSR: base64.RawURLEncoding.EncodeToString(csr)}, c.Finalize, false)
 	if err != nil {
 		return err
 	}
@@ -179,7 +180,7 @@ func (c *Client) PollForStatus(domain string) error {
 	defer certfile.Close()
 
 	certwriter := bufio.NewWriter(certfile)
-	cert, err := c.makeRequest("", certRes.Certificate, true)
+	cert, err := c.makeRequest(ctx, "", certRes.Certificate, true)
 	if err != nil {
 		fmt.Printf("Failed downloading cert: %v\n", err)
 		return err

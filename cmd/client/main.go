@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
@@ -26,6 +27,8 @@ func main() {
 	// key, err := rsa.GenerateKey(rand.Reader, 2048)
 	var contactsArg string
 	var domainsArg string
+	ctx := context.Background()
+
 	pflag.StringVar(&contactsArg, "contacts", "somebody@example.org", "Command separated list of email contacts")
 	pflag.StringVar(&domainsArg, "domains", "example.org", "Comma separated list of domains to request certs for.")
 	pflag.Parse()
@@ -77,7 +80,7 @@ func main() {
 	}
 
 	for _, domain := range domains {
-		if err := client.FetchOrRenewCert(domain); err != nil {
+		if err := client.FetchOrRenewCert(ctx, domain); err != nil {
 			_, _ = fmt.Fprintf(os.Stderr, "failed to fetch or renew cert for %s\n", domain)
 		}
 	}

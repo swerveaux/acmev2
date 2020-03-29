@@ -2,6 +2,7 @@ package acmev2
 
 import (
 	"bytes"
+	"context"
 	"crypto"
 	"crypto/ecdsa"
 	"crypto/rsa"
@@ -12,6 +13,7 @@ import (
 	"io/ioutil"
 	"log"
 	"net/http"
+	"strings"
 	"time"
 
 	jose "gopkg.in/square/go-jose.v2"
@@ -85,8 +87,12 @@ type Client struct {
 // a slice of contact emails for the cert being requested (Let's Encrypt will generally send you an
 // email when a cert is approaching expiration, though I've found that to be flaky).   There's
 // the Directory from that URL and get a Nonce for the next request.
+// If no key is provided in the options, a key will be generated for a new account and be subsequently
+// available in the Key field of the Client struct.   That key can be re-used to keep using the same
+// Let's Encrypt account in the future.
 func NewClient(dirURL string, csr CertStoreRetriever, dm DNSModifier, opts ClientOpts) (Client, error) {
-	c := Client{Key: opts.AccountKey, CertKey: opts.CertKey, ContactEmails: opts.ContactEmails}
+	contacts := prependContacts(opts.ContactEmails)
+	c := Client{Key: opts.AccountKey, CertKey: opts.CertKey, ContactEmails: contacts}
 
 	directory, err := queryDirectory(dirURL)
 	if err != nil {
@@ -94,19 +100,8 @@ func NewClient(dirURL string, csr CertStoreRetriever, dm DNSModifier, opts Clien
 	}
 	c.Directory = directory
 
-	nonce, err := GetNonce(c.Directory.NewNonce)
-	if err != nil {
-		return c, err
-	}
-	c.log(fmt.Sprintf("Fetched nonce: %s\n", nonce))
-	c.Nonce = nonce
-
 	if opts.Logger != nil {
 		c.Logger = opts.Logger
-	}
-
-	if err := c.newAccount(c.ContactEmails); err != nil {
-		return c, err
 	}
 
 	c.DNS = dm
@@ -121,16 +116,30 @@ func NewClient(dirURL string, csr CertStoreRetriever, dm DNSModifier, opts Clien
 // it finds that, will re-use the existing RSA key for the cert when asking for a renewal.   Otherwise, it will
 // generate a new key and ask for a new cert.   It is not recommended to run this in parallel with other requests
 // due to the way nonces with with the session.
-func (c *Client) FetchOrRenewCert(domain string) error {
+func (c *Client) FetchOrRenewCert(ctx context.Context, domain string) error {
 	if domain == "" {
 		return errors.New("no domain passed in")
 	}
-	certApply, err := c.CertApply([]string{domain})
+
+	nonce, err := GetNonce(c.Directory.NewNonce)
+	if err != nil {
+		c.log(err)
+		return err
+	}
+	c.Nonce = nonce
+
+	err = c.newAccount(ctx, c.ContactEmails)
+	if err != nil {
+		c.log("failed starting new session")
+		return err
+	}
+
+	certApply, err := c.CertApply(ctx, []string{domain})
 	if err != nil {
 		return err
 	}
 
-	challengeResponse, err := c.FetchChallenges(certApply.Authorizations[0])
+	challengeResponse, err := c.FetchChallenges(ctx, certApply.Authorizations[0])
 	c.log(challengeResponse)
 	var challenge Challenge
 	for _, c := range challengeResponse.Challenges {
@@ -161,13 +170,13 @@ func (c *Client) FetchOrRenewCert(domain string) error {
 
 	<-time.After(1 * time.Minute)
 
-	err = c.ChallengeReady(challenge.URL)
+	err = c.ChallengeReady(ctx, challenge.URL)
 	if err != nil {
 		c.log(fmt.Sprintf("Failed posting challenge: %v\n", err))
 		return err
 	}
 
-	err = c.PollForStatus(domain)
+	err = c.PollForStatus(ctx, domain)
 	if err != nil {
 		c.log(fmt.Sprintf("Bad response when polling: %v\n", err))
 		return err
@@ -176,7 +185,7 @@ func (c *Client) FetchOrRenewCert(domain string) error {
 	return nil
 }
 
-func (c *Client) makeRequest(claimset interface{}, url string, postAsGet bool) ([]byte, error) {
+func (c *Client) makeRequest(ctx context.Context, claimset interface{}, url string, postAsGet bool) ([]byte, error) {
 	var b []byte
 	token, err := c.JWSEncodeJSON(claimset, url, postAsGet)
 	if err != nil {
@@ -268,4 +277,15 @@ func (c *Client) log(msg interface{}) {
 	if c.Logger != nil {
 		c.Logger.Log(fmt.Sprintf("%s\n", msg))
 	}
+}
+
+func prependContacts(c []string) []string {
+	contacts := make([]string, len(c))
+	for i := range c {
+		if !strings.HasPrefix(c[i], "mailto:") {
+			c[i] = fmt.Sprintf("mailto:%s", strings.TrimSpace(c[i]))
+		}
+		contacts[i] = c[i]
+	}
+	return contacts
 }
