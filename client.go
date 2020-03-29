@@ -5,6 +5,8 @@ import (
 	"context"
 	"crypto"
 	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
 	"crypto/rsa"
 	"crypto/sha256"
 	"encoding/base64"
@@ -99,6 +101,14 @@ func NewClient(dirURL string, csr CertStoreRetriever, dm DNSModifier, opts Clien
 		return c, err
 	}
 	c.Directory = directory
+
+	if opts.AccountKey == nil {
+		key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+		if err != nil {
+			log.Fatal(err)
+		}
+		opts.AccountKey = key
+	}
 
 	if opts.Logger != nil {
 		c.Logger = opts.Logger
