@@ -2,8 +2,6 @@ package main
 
 import (
 	"context"
-	"crypto/ecdsa"
-	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/tls"
@@ -42,18 +40,12 @@ func main() {
 		domains[i] = strings.TrimSpace(domains[i])
 	}
 
-	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-	if err != nil {
-		log.Fatal(err)
-	}
-
 	certKey, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
 		log.Fatal(err)
 	}
 
 	acmeClientOpts := acmev2.ClientOpts{
-		AccountKey:    key,
 		CertKey:       certKey,
 		ContactEmails: contacts,
 		Logger:        acmev2.StdoutLogger{},
